@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "דרך הגוף",
+    "slug": "throughthebody",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#6B3FA0"
+      }
+    },
+    "web": {
+      "name": "דרך הגוף",
+      "shortName": "TTB"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font"
+    ]
+  }
+}
