@@ -52,7 +52,7 @@ export default function ClientsScreen() {
       fetchAllRows(() =>
         supabase
           .from('purchases')
-          .select('client_id, lessons_count, paid, purchased_at')
+          .select('id, client_id, lessons_count, paid, purchased_at, created_at')
           .in('client_id', ids)
       ),
     ]);

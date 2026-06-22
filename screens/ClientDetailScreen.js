@@ -25,55 +25,6 @@ const MONTHS_HE = [
   'יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר',
 ];
 
-// Shared by the new-client form and the "sell a ticket" modal — a card is
-// always a lesson count plus a paid/unpaid status, nothing else.
-function TicketFields({ count, setCount, paid, setPaid }) {
-  return (
-    <>
-      <Text style={styles.paymentLabel}>כמה שיעורים בכרטיסייה?</Text>
-      <View style={styles.paymentRow}>
-        <TouchableOpacity
-          onPress={() => setCount(c => String(Math.max(1, (parseInt(c, 10) || 0) - 1)))}
-          style={styles.stepperBtn}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="remove" size={18} color={PURPLE} />
-        </TouchableOpacity>
-        <TextInput
-          style={styles.stepperInput}
-          value={count}
-          onChangeText={t => setCount(t.replace(/[^0-9]/g, ''))}
-          keyboardType="number-pad"
-          textAlign="center"
-        />
-        <TouchableOpacity
-          onPress={() => setCount(c => String((parseInt(c, 10) || 0) + 1))}
-          style={styles.stepperBtn}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="add" size={18} color={PURPLE} />
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.paymentLabel}>שולם?</Text>
-      <View style={styles.paidToggleRow}>
-        <TouchableOpacity
-          onPress={() => setPaid(true)}
-          style={[styles.toggleBtn, paid && styles.toggleBtnActiveGreen]}
-        >
-          <Text style={[styles.toggleBtnText, paid && styles.toggleBtnTextActive]}>שולם</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setPaid(false)}
-          style={[styles.toggleBtn, !paid && styles.toggleBtnActiveBlue]}
-        >
-          <Text style={[styles.toggleBtnText, !paid && styles.toggleBtnTextActive]}>לא שולם</Text>
-        </TouchableOpacity>
-      </View>
-    </>
-  );
-}
-
 export default function ClientDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -94,14 +45,8 @@ export default function ClientDetailScreen() {
   const [reminderTemplate, setReminderTemplate] = useState(DEFAULT_REMINDER_TEMPLATE);
   const [absenceModalOpen, setAbsenceModalOpen] = useState(false);
 
-  // First ticket, entered inline as part of the new-client form.
-  const [newTicketCount, setNewTicketCount] = useState(String(CYCLE_LENGTH));
-  const [newTicketPaid, setNewTicketPaid] = useState(true);
-
-  // Selling a later ticket to an existing client happens in a small modal.
-  const [ticketModalOpen, setTicketModalOpen] = useState(false);
-  const [modalTicketCount, setModalTicketCount] = useState(String(CYCLE_LENGTH));
-  const [modalTicketPaid, setModalTicketPaid] = useState(true);
+  // Every ticket is always 10 lessons, always paid — Shirly only adds one
+  // once she's actually received payment, so there's nothing left to ask.
   const [lastAddedPurchaseId, setLastAddedPurchaseId] = useState(null);
 
   const clientId = client?.id ?? routeClientId;
@@ -121,11 +66,6 @@ export default function ClientDetailScreen() {
     setAllAttendances([]);
     setPurchases([]);
     setAbsences([]);
-    setNewTicketCount(String(CYCLE_LENGTH));
-    setNewTicketPaid(true);
-    setTicketModalOpen(false);
-    setModalTicketCount(String(CYCLE_LENGTH));
-    setModalTicketPaid(true);
     setLastAddedPurchaseId(null);
     setYear(new Date().getFullYear());
     setMonth(new Date().getMonth());
@@ -240,11 +180,10 @@ export default function ClientDetailScreen() {
       return;
     }
     if (withTicket) {
-      const count = parseInt(newTicketCount, 10) || CYCLE_LENGTH;
       await supabase.from('purchases').insert({
         client_id: data.id,
-        lessons_count: count,
-        paid: newTicketPaid,
+        lessons_count: CYCLE_LENGTH,
+        paid: true,
         purchased_at: todayString(),
       });
     }
@@ -284,21 +223,18 @@ export default function ClientDetailScreen() {
     setAbsences(prev => prev.filter(a => a.id !== id));
   };
 
-  // --- Tickets ---
-  const confirmSellTicket = async () => {
-    const count = parseInt(modalTicketCount, 10) || CYCLE_LENGTH;
+  // --- Tickets — always 10 lessons, always paid, added the moment Shirly
+  // actually receives payment. Nothing to configure, so this is one tap. ---
+  const addNewTicket = async () => {
     const { data } = await supabase
       .from('purchases')
-      .insert({ client_id: clientId, lessons_count: count, paid: modalTicketPaid, purchased_at: todayString() })
+      .insert({ client_id: clientId, lessons_count: CYCLE_LENGTH, paid: true, purchased_at: todayString() })
       .select()
       .single();
     if (data) {
       setPurchases(prev => [...prev, data]);
       setLastAddedPurchaseId(data.id);
     }
-    setTicketModalOpen(false);
-    setModalTicketCount(String(CYCLE_LENGTH));
-    setModalTicketPaid(true);
   };
 
   // Undo only ever reverses the single most recently added ticket from this
@@ -308,11 +244,6 @@ export default function ClientDetailScreen() {
     await supabase.from('purchases').delete().eq('id', lastAddedPurchaseId);
     setPurchases(prev => prev.filter(p => p.id !== lastAddedPurchaseId));
     setLastAddedPurchaseId(null);
-  };
-
-  const togglePurchasePaid = async (id, currentPaid) => {
-    await supabase.from('purchases').update({ paid: !currentPaid }).eq('id', id);
-    setPurchases(prev => prev.map(p => p.id === id ? { ...p, paid: !currentPaid } : p));
   };
 
   const deleteClient = async () => {
@@ -380,10 +311,7 @@ export default function ClientDetailScreen() {
             {!clientId && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>כרטיסייה ראשונה</Text>
-                <TicketFields
-                  count={newTicketCount} setCount={setNewTicketCount}
-                  paid={newTicketPaid} setPaid={setNewTicketPaid}
-                />
+                <Text style={styles.ticketHint}>כרטיסייה של {CYCLE_LENGTH} שיעורים, מסומנת כשולמה</Text>
               </View>
             )}
 
@@ -466,26 +394,14 @@ export default function ClientDetailScreen() {
                 ) : (
                   ticketsNewestFirst.map(p => (
                     <View key={p.id} style={styles.ticketRow}>
-                      <TouchableOpacity
-                        onPress={() => togglePurchasePaid(p.id, p.paid)}
-                        style={[styles.payBtn, p.paid ? styles.payBtnGreen : styles.payBtnBlue]}
-                      >
-                        {p.paid ? (
-                          <>
-                            <Ionicons name="checkmark-circle" size={14} color={GREEN} />
-                            <Text style={styles.paidText}>שולם</Text>
-                          </>
-                        ) : (
-                          <Text style={styles.unpaidText}>לא שולם</Text>
-                        )}
-                      </TouchableOpacity>
+                      <Ionicons name="checkmark-circle" size={14} color={GREEN} />
                       <Text style={styles.ticketCount}>{p.lessons_count} שיעורים</Text>
                       <Text style={styles.ticketDate}>{formatDateHebrew(p.purchased_at)}</Text>
                     </View>
                   ))
                 )}
 
-                <TouchableOpacity style={styles.sellTicketBtn} onPress={() => setTicketModalOpen(true)}>
+                <TouchableOpacity style={styles.sellTicketBtn} onPress={addNewTicket}>
                   <Ionicons name="add-circle-outline" size={18} color={PURPLE} />
                   <Text style={styles.sellTicketBtnText}>כרטיסיה חדשה</Text>
                 </TouchableOpacity>
@@ -541,31 +457,6 @@ export default function ClientDetailScreen() {
               addButtonLabel="הוסף היעדרות"
               labelPlaceholder="סיבה (חופשה, מחלה...)"
             />
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={ticketModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTicketModalOpen(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <TouchableOpacity onPress={() => setTicketModalOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close" size={22} color="#888" />
-              </TouchableOpacity>
-              <Text style={styles.modalTitle}>מכירת כרטיסייה</Text>
-            </View>
-            <TicketFields
-              count={modalTicketCount} setCount={setModalTicketCount}
-              paid={modalTicketPaid} setPaid={setModalTicketPaid}
-            />
-            <TouchableOpacity style={styles.saveNewBtn} onPress={confirmSellTicket}>
-              <Text style={styles.saveNewBtnText}>הוספת כרטיסייה</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -627,28 +518,7 @@ const styles = StyleSheet.create({
   monthLabel: { fontSize: 17, fontWeight: '700', color: '#1A1A1A' },
   emptyText: { textAlign: 'center', color: '#BBB', marginTop: 24, fontSize: 16 },
 
-  paymentLabel: { fontSize: 13, color: '#888', fontWeight: '600', textAlign: 'right', marginBottom: 8, marginTop: 4 },
-  paymentRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 4,
-  },
-  stepperBtn: {
-    width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3EEF9',
-    borderWidth: 1, borderColor: '#D4C5EF', alignItems: 'center', justifyContent: 'center',
-  },
-  stepperInput: {
-    width: 44, fontSize: 17, fontWeight: '700', color: '#1A1A1A',
-    borderWidth: 1, borderColor: BORDER, borderRadius: 8, paddingVertical: 8,
-    textAlign: 'center',
-  },
-  paidToggleRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
-  toggleBtn: {
-    flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center',
-    borderWidth: 1.5, borderColor: BORDER, backgroundColor: '#FAFAFA',
-  },
-  toggleBtnActiveGreen: { backgroundColor: '#E8F5E9', borderColor: GREEN },
-  toggleBtnActiveBlue: { backgroundColor: '#E3F2FD', borderColor: BLUE },
-  toggleBtnText: { fontSize: 14, color: '#999', fontWeight: '600' },
-  toggleBtnTextActive: { color: '#1A1A1A' },
+  ticketHint: { fontSize: 13, color: '#888', textAlign: 'right', marginTop: 4 },
   undoLinkStandalone: { alignSelf: 'center', marginVertical: 10 },
   undoLinkText: { fontSize: 13, color: '#999', fontWeight: '600', textDecorationLine: 'underline' },
 
@@ -674,13 +544,4 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: BORDER,
   },
   dateText: { fontSize: 14, color: '#1A1A1A', textAlign: 'right', flex: 1 },
-  payBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,
-    minWidth: 90, justifyContent: 'center',
-  },
-  payBtnBlue: { backgroundColor: '#E3F2FD', borderWidth: 1.5, borderColor: '#1565C0' },
-  payBtnGreen: { backgroundColor: '#E8F5E9', borderWidth: 1.5, borderColor: '#2E7D32' },
-  unpaidText: { fontSize: 12, color: BLUE, fontWeight: '700' },
-  paidText: { fontSize: 12, color: GREEN, fontWeight: '700' },
 });

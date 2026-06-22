@@ -156,7 +156,7 @@ export default function DashboardDrillDownScreen() {
               <TouchableOpacity style={styles.row} onPress={() => navigateToClient(item.id)}>
                 <Ionicons name="chevron-back" size={16} color="#CCC" />
                 <View style={styles.debtSlot}>
-                  <DebtBadge unpaidCount={item.stats.unpaidCount} overdraftCount={item.stats.overdraftCount} />
+                  <DebtBadge unpaidCount={item.stats.overdraftCount} overdraftCount={item.stats.overdraftCount} />
                 </View>
                 <Text style={styles.rowName}>{item.name}</Text>
               </TouchableOpacity>
@@ -185,15 +185,12 @@ export default function DashboardDrillDownScreen() {
                 <View style={styles.row}>
                   <TouchableOpacity style={styles.rowInfo} onPress={() => navigateToClient(item.id)}>
                     <Text style={styles.rowName}>{item.name}</Text>
-                    <Text style={styles.rowSub}>
-                      {item.stats.last
-                        ? (item.stats.remaining > 0
-                          ? `נותר/ה לה שיעור אחד בכרטיסייה`
-                          : 'סיימה את הכרטיסייה')
-                        : 'איש קשר לבדיקה'}
-                    </Text>
+                    {/* Membership in this list already guarantees a clean,
+                        fully-used 10-lesson card with nothing owed — no
+                        other state is reachable here, so no need for a debt
+                        pill or a conditional message. */}
+                    <Text style={styles.rowSub}>סיימה את הכרטיסייה</Text>
                   </TouchableOpacity>
-                  <DebtBadge unpaidCount={item.stats.unpaidCount} overdraftCount={item.stats.overdraftCount} />
                   {sent ? (
                     <View style={styles.sentBadge}>
                       <Ionicons name="checkmark-circle" size={16} color={GREEN} />
