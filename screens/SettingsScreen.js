@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  ScrollView, TextInput, Linking,
+  ScrollView, TextInput, Linking, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,8 +20,10 @@ export default function SettingsScreen() {
 
   const [template, setTemplate] = useState(DEFAULT_CLOSURE_TEMPLATE);
   const [reminderTemplate, setReminderTemplate] = useState(DEFAULT_REMINDER_TEMPLATE);
+  const [pendingRange, setPendingRange] = useState(null);
   const [broadcastRange, setBroadcastRange] = useState(null);
   const [broadcastClients, setBroadcastClients] = useState([]);
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
   const [sentTo, setSentTo] = useState(new Set());
 
   const fetchSettings = useCallback(async () => {
@@ -66,19 +68,31 @@ export default function SettingsScreen() {
     await supabase.from('settings').upsert({ key: 'reminder_message_template', value: reminderTemplate });
   };
 
-  const openBroadcast = async (range) => {
+  const openBroadcast = (range) => {
+    setPendingRange(range);
+  };
+
+  const confirmBroadcast = async () => {
+    const range = pendingRange;
+    setPendingRange(null);
     setBroadcastRange(range);
+    setBroadcastClients([]);
     setSentTo(new Set());
+    setBroadcastLoading(true);
     const { data } = await supabase
       .from('clients')
       .select('id, name, phone')
       .eq('active', true)
       .order('name');
     setBroadcastClients(data ?? []);
+    setBroadcastLoading(false);
   };
 
-  const mergedMessage = broadcastRange
-    ? template.replace('{תאריכים}', formatDateRangeShort(broadcastRange.from, broadcastRange.to))
+  const mergedMessage = (pendingRange || broadcastRange)
+    ? template.replace('{תאריכים}', formatDateRangeShort(
+        (pendingRange || broadcastRange).from,
+        (pendingRange || broadcastRange).to,
+      ))
     : '';
 
   const sendToClient = async (client) => {
@@ -146,42 +160,77 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
-        {/* Broadcast panel */}
-        {broadcastRange && (
-          <View style={styles.section}>
-            <View style={styles.broadcastHeader}>
-              <TouchableOpacity onPress={() => setBroadcastRange(null)}>
-                <Ionicons name="close-circle" size={20} color="#888" />
+        <Text style={styles.version}>גרסה 1.0.0</Text>
+      </ScrollView>
+
+      {/* Confirmation modal */}
+      <Modal visible={!!pendingRange} transparent animationType="fade" onRequestClose={() => setPendingRange(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>שליחת הודעת סגירה</Text>
+            <Text style={styles.modalSubtitle}>
+              {pendingRange?.label}{'  '}
+              <Text style={styles.modalDates}>
+                {pendingRange ? formatDateRangeShort(pendingRange.from, pendingRange.to) : ''}
+              </Text>
+            </Text>
+            <View style={styles.previewBox}>
+              <Text style={styles.previewText}>{mergedMessage}</Text>
+            </View>
+            <Text style={styles.modalQuestion}>לשלוח הודעה זו לכל הלקוחות?</Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setPendingRange(null)}>
+                <Text style={styles.modalCancelText}>ביטול</Text>
               </TouchableOpacity>
-              <Text style={styles.sectionTitle}>שליחה: {broadcastRange.label}</Text>
+              <TouchableOpacity style={styles.modalConfirmBtn} onPress={confirmBroadcast}>
+                <Text style={styles.modalConfirmText}>שלח</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Client list modal */}
+      <Modal visible={!!broadcastRange} transparent animationType="slide" onRequestClose={() => setBroadcastRange(null)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, styles.broadcastModalCard]}>
+            <View style={styles.broadcastHeader}>
+              <TouchableOpacity onPress={() => setBroadcastRange(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={22} color="#888" />
+              </TouchableOpacity>
+              <Text style={styles.sectionTitle}>שליחה: {broadcastRange?.label}</Text>
             </View>
             <View style={styles.previewBox}>
               <Text style={styles.previewText}>{mergedMessage}</Text>
             </View>
-            {broadcastClients.map(c => {
-              const sent = sentTo.has(c.id);
-              return (
-                <View key={c.id} style={styles.broadcastRow}>
-                  <Text style={styles.broadcastName}>{c.name}</Text>
-                  {sent ? (
-                    <View style={styles.sentBadge}>
-                      <Ionicons name="checkmark-circle" size={16} color="#2E7D32" />
-                      <Text style={styles.sentText}>נשלח</Text>
+            {broadcastLoading ? (
+              <ActivityIndicator color={PURPLE} style={{ marginVertical: 24 }} />
+            ) : (
+              <ScrollView style={styles.broadcastScroll} contentContainerStyle={{ paddingBottom: 12 }}>
+                {broadcastClients.map(c => {
+                  const sent = sentTo.has(c.id);
+                  return (
+                    <View key={c.id} style={styles.broadcastRow}>
+                      <Text style={styles.broadcastName}>{c.name}</Text>
+                      {sent ? (
+                        <View style={styles.sentBadge}>
+                          <Ionicons name="checkmark-circle" size={16} color="#2E7D32" />
+                          <Text style={styles.sentText}>נשלח</Text>
+                        </View>
+                      ) : (
+                        <TouchableOpacity style={styles.sendBtn} onPress={() => sendToClient(c)}>
+                          <Ionicons name="logo-whatsapp" size={14} color="#FFF" />
+                          <Text style={styles.sendBtnText}>שלח</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
-                  ) : (
-                    <TouchableOpacity style={styles.sendBtn} onPress={() => sendToClient(c)}>
-                      <Ionicons name="logo-whatsapp" size={14} color="#FFF" />
-                      <Text style={styles.sendBtnText}>שלח</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })}
+                  );
+                })}
+              </ScrollView>
+            )}
           </View>
-        )}
-
-        <Text style={styles.version}>גרסה 1.0.0</Text>
-      </ScrollView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -221,5 +270,31 @@ const styles = StyleSheet.create({
   sendBtnText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
   sentBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   sentText: { fontSize: 12, color: '#2E7D32', fontWeight: '600' },
+  broadcastScroll: { maxHeight: 320 },
+  broadcastModalCard: { maxHeight: '80%' },
+
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center', alignItems: 'center', padding: 20,
+  },
+  modalCard: {
+    backgroundColor: '#FFF', borderRadius: 16, padding: 20, width: '100%', maxWidth: 380,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A', textAlign: 'right', marginBottom: 4 },
+  modalSubtitle: { fontSize: 13, color: '#888', textAlign: 'right', marginBottom: 12 },
+  modalDates: { fontSize: 12, color: '#AAA' },
+  modalQuestion: { fontSize: 14, color: '#1A1A1A', textAlign: 'right', marginBottom: 16, fontWeight: '600' },
+  modalButtons: { flexDirection: 'row', gap: 10 },
+  modalCancelBtn: {
+    flex: 1, borderRadius: 10, paddingVertical: 13, alignItems: 'center',
+    borderWidth: 1.5, borderColor: BORDER,
+  },
+  modalCancelText: { fontSize: 15, color: '#888', fontWeight: '600' },
+  modalConfirmBtn: {
+    flex: 1, borderRadius: 10, paddingVertical: 13, alignItems: 'center',
+    backgroundColor: '#25D366',
+  },
+  modalConfirmText: { fontSize: 15, color: '#FFF', fontWeight: '700' },
+
   version: { textAlign: 'center', color: '#CCC', fontSize: 12, marginTop: 20 },
 });

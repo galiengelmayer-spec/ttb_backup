@@ -51,11 +51,11 @@ export default function DateRangePicker({
           <View style={styles.pillsRow}>
             {ranges.map(r => (
               <View key={r.id} style={styles.pill}>
-                <TouchableOpacity onPress={() => onRemove(r.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={() => onRemove(r.id)} hitSlop={{ top: 14, bottom: 14, left: 18, right: 4 }}>
                   <Ionicons name="close-circle" size={18} color="#888" />
                 </TouchableOpacity>
                 {onSendRange && (
-                  <TouchableOpacity onPress={() => onSendRange(r)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <TouchableOpacity onPress={() => onSendRange(r)} hitSlop={{ top: 14, bottom: 14, left: 4, right: 18 }}>
                     <Ionicons name="paper-plane-outline" size={16} color={PURPLE} />
                   </TouchableOpacity>
                 )}
