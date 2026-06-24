@@ -17,6 +17,7 @@ import AddRequestModal from '../components/AddRequestModal';
 
 const PURPLE = '#6B3FA0';
 const GREEN = '#2E7D32';
+const RED = '#C62828';
 const BORDER = '#E0E0E0';
 
 export default function AttendanceScreen() {
@@ -118,7 +119,13 @@ export default function AttendanceScreen() {
     });
   }, [navigation, manualRefresh, spinValue]);
 
-  const attendedIds = new Set(attended.map(a => a.client_id));
+  const countByClient = {};
+  attended.forEach(a => { countByClient[a.client_id] = (countByClient[a.client_id] ?? 0) + 1; });
+  // Deduplicated for הגיעו list — attended is sorted created_at desc, so first
+  // occurrence of each client_id is their most-recently-added row.
+  const attendedDeduped = attended.filter(
+    (a, i) => attended.findIndex(b => b.client_id === a.client_id) === i
+  );
   const [filteredClients, setFilteredClients] = useState([]);
 
   useEffect(() => {
@@ -169,28 +176,18 @@ export default function AttendanceScreen() {
     }
   };
 
-  const removeAttendanceByClient = async (clientId) => {
+  // Removes the most-recently-added attendance row for this client today.
+  // attended is sorted created_at desc, so find() gives the newest one.
+  const removeOneAttendance = async (clientId) => {
     const row = attended.find(a => a.client_id === clientId);
     if (!row) return;
     await supabase.from('attendances').delete().eq('id', row.id);
-    setAttended(prev => prev.filter(a => a.id !== row.id));
+    setAttended(prev => {
+      const idx = prev.findIndex(a => a.id === row.id);
+      return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
     const pill = await fetchClientPillState(clientId);
     setPillStates(prev => ({ ...prev, [clientId]: pill }));
-  };
-
-  const removeAttendance = async (attendanceId) => {
-    const row = attended.find(a => a.id === attendanceId);
-    await supabase.from('attendances').delete().eq('id', attendanceId);
-    setAttended(prev => prev.filter(a => a.id !== attendanceId));
-    if (row) {
-      const pill = await fetchClientPillState(row.client_id);
-      setPillStates(prev => ({ ...prev, [row.client_id]: pill }));
-    }
-  };
-
-  const toggleClient = (client) => {
-    if (attendedIds.has(client.id)) removeAttendanceByClient(client.id);
-    else addAttendance(client);
   };
 
   const isToday = date === todayString();
@@ -276,25 +273,39 @@ export default function AttendanceScreen() {
           <FlatList
             data={filteredClients}
             keyExtractor={item => item.id}
+            extraData={countByClient}
             keyboardShouldPersistTaps="always"
             contentContainerStyle={{ paddingBottom: 20 }}
             renderItem={({ item }) => {
-              const isIn = attendedIds.has(item.id);
+              const count = countByClient[item.id] ?? 0;
               return (
-                <TouchableOpacity
-                  style={styles.clientRow}
-                  onPress={() => toggleClient(item)}
-                >
-                  <Ionicons
-                    name={isIn ? 'checkmark-circle' : 'add-circle-outline'}
-                    size={24}
-                    color={isIn ? GREEN : PURPLE}
-                  />
-                  <View style={styles.debtSlot}>
-                    <LessonCountBadge {...(pillStates[item.id] ?? {})} />
-                  </View>
+                <View style={styles.clientRow}>
+                  {count === 0 ? (
+                    <TouchableOpacity
+                      onPress={() => addAttendance(item)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Text style={styles.counterBtn}>+</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.attendCounter}>
+                      <TouchableOpacity
+                        onPress={() => removeOneAttendance(item.id)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Text style={styles.counterBtn}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.counterText}>{count}</Text>
+                      <TouchableOpacity
+                        onPress={() => addAttendance(item)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Text style={styles.counterBtn}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                   <Text style={styles.clientRowName}>{item.name}</Text>
-                </TouchableOpacity>
+                </View>
               );
             }}
             ListEmptyComponent={
@@ -323,28 +334,37 @@ export default function AttendanceScreen() {
             <EmptyState icon="walk-outline" text="עדיין אף אחד לא סומן" />
           ) : (
             <FlatList
-              data={attended}
-              keyExtractor={item => item.id}
+              data={attendedDeduped}
+              keyExtractor={item => item.client_id}
+              extraData={pillStates}
               contentContainerStyle={{ paddingBottom: 20 }}
-              renderItem={({ item }) => (
-                <View style={styles.attendedItem}>
-                  <View style={styles.debtSlot}>
-                    <LessonCountBadge {...(pillStates[item.client_id] ?? {})} />
+              renderItem={({ item }) => {
+                const count = countByClient[item.client_id] ?? 1;
+                return (
+                  <View style={styles.attendedItem}>
+                    <View style={styles.debtSlot}>
+                      <LessonCountBadge {...(pillStates[item.client_id] ?? {})} />
+                    </View>
+                    <TouchableOpacity
+                      style={styles.attendedNameTouch}
+                      onPress={() => navigateToClient(item.client_id)}
+                    >
+                      <Text style={styles.attendedName}>
+                        {item.clients?.name ?? ''}
+                      </Text>
+                      {count > 1 && (
+                        <Text style={styles.multiCountText}>×{count} כניסות היום</Text>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => removeOneAttendance(item.client_id)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="close-outline" size={20} color="#CCC" />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    style={styles.attendedNameTouch}
-                    onPress={() => navigateToClient(item.client_id)}
-                  >
-                    <Text style={styles.attendedName}>{item.clients?.name ?? ''}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => removeAttendance(item.id)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons name="close-outline" size={20} color="#CCC" />
-                  </TouchableOpacity>
-                </View>
-              )}
+                );
+              }}
             />
           )}
         </>
@@ -425,4 +445,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#F5F5F5', gap: 10,
   },
   clientRowName: { flex: 1, fontSize: 17, color: '#1A1A1A', textAlign: 'right' },
+  attendCounter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  counterBtn: { fontSize: 20, color: '#999', fontWeight: '400', paddingHorizontal: 2 },
+  counterText: { fontSize: 15, fontWeight: '700', color: '#1A1A1A', minWidth: 16, textAlign: 'center' },
+  multiCountText: { fontSize: 12, color: PURPLE, fontWeight: '600', textAlign: 'right', marginTop: 2 },
 });
