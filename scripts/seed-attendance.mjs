@@ -135,48 +135,84 @@ const dueCandidates = new Set(shuffledIds.slice(0, 5));
 const overdueCandidates = new Set(shuffledIds.slice(5, 11));
 const unpaidTicketCandidates = new Set(shuffledIds.slice(11, 16));
 
-function ticketChunks(clientId, totalLessons, paid, purchasedAt) {
+// Every ticket is "bought" on the date of the lesson that starts drawing it
+// down — at ~2 lessons/week that lands roughly a month apart per card,
+// instead of every chunk sharing one purchase date. totalLessons is always
+// passed in as an exact multiple of CYCLE_LENGTH (see trimming below), so
+// every chunk this produces is a full, real-sized ticket — Shirly never
+// sells any other size.
+function ticketChunks(clientId, totalLessons, paid, attendanceDatesAsc) {
   const rows = [];
   let remaining = totalLessons;
+  let idx = 0;
   while (remaining > 0) {
     const chunk = Math.min(CYCLE_LENGTH, remaining);
+    const purchasedAt = attendanceDatesAsc[idx] ?? attendanceDatesAsc[attendanceDatesAsc.length - 1];
     rows.push({ client_id: clientId, lessons_count: chunk, paid, purchased_at: purchasedAt });
     remaining -= chunk;
+    idx += CYCLE_LENGTH;
   }
   return rows;
 }
 
+function trimToCount(records, desiredCount) {
+  if (desiredCount >= records.length) return records;
+  const sorted = [...records].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const keepDates = new Set(sorted.slice(0, desiredCount).map(r => r.date));
+  return records.filter(r => keepDates.has(r.date));
+}
+
 const purchaseRows = [];
 for (const id of clientIds) {
+  const sortedAll = [...byClient[id]].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const L = sortedAll.length;
+  if (L === 0) continue;
+  const fullTicketsAvailable = Math.floor(L / CYCLE_LENGTH);
+  const remainder = L % CYCLE_LENGTH;
+
+  // Trim each demo category down to an attendance count that produces only
+  // clean CYCLE_LENGTH-sized tickets — a ticket is never any other size in
+  // real life, so the mock data shouldn't invent one either.
+  if (dueCandidates.has(id)) {
+    // Paid up, exactly at the end of her current card.
+    byClient[id] = trimToCount(byClient[id], fullTicketsAvailable * CYCLE_LENGTH);
+  } else if (overdueCandidates.has(id)) {
+    // Fully used every (clean, 10-lesson) ticket she's bought, plus a
+    // lesson or two beyond that — real overdraft, never more in practice.
+    let fullTickets = fullTicketsAvailable;
+    const overdraft = rand(1, 2);
+    if (overdraft > remainder) fullTickets -= 1;
+    byClient[id] = trimToCount(byClient[id], fullTickets * CYCLE_LENGTH + overdraft);
+  } else if (unpaidTicketCandidates.has(id)) {
+    // Just opened a new (full-sized) card and hasn't paid for it yet —
+    // debt comes from the handful of lessons actually drawn from it.
+    let fullTickets = fullTicketsAvailable;
+    const usedFromNewTicket = rand(1, 3);
+    if (usedFromNewTicket > remainder) fullTickets -= 1;
+    byClient[id] = trimToCount(byClient[id], fullTickets * CYCLE_LENGTH + usedFromNewTicket);
+  }
+  // Healthy candidates keep their full attendance as generated — no trim.
+
   const sorted = [...byClient[id]].sort((a, b) => (a.date < b.date ? -1 : 1));
   const totalAttended = sorted.length;
-  if (totalAttended === 0) continue;
-  const firstDate = sorted[0].date;
+  const attendanceDates = sorted.map(r => r.date);
+  const fullTickets = Math.floor(totalAttended / CYCLE_LENGTH);
 
   if (dueCandidates.has(id)) {
-    // Paid up, exactly at the end of her current card — the "needs a new
-    // card" reminder case, not a debt case.
-    purchaseRows.push(...ticketChunks(id, totalAttended, true, firstDate));
+    purchaseRows.push(...ticketChunks(id, totalAttended, true, attendanceDates));
   } else if (overdueCandidates.has(id)) {
-    // Real overdraft: attended a lesson or two beyond what's been purchased
-    // at all — in practice Shirly would never let this run higher than that.
-    const overdraft = rand(1, 2);
-    const purchasedCount = Math.max(0, totalAttended - overdraft);
-    purchaseRows.push(...ticketChunks(id, purchasedCount, true, firstDate));
+    purchaseRows.push(...ticketChunks(id, fullTickets * CYCLE_LENGTH, true, attendanceDates));
   } else if (unpaidTicketCandidates.has(id)) {
-    // She's just opened a new card and hasn't paid for it yet — debt comes
-    // from the handful of lessons actually drawn from that fresh unpaid
-    // ticket, not from its full size. Dated after the paid chunk so it's
-    // the newest ticket and gets consumed last.
-    const usedFromNewTicket = Math.min(rand(1, 3), totalAttended);
-    const paidPortion = totalAttended - usedFromNewTicket;
+    const paidPortion = fullTickets * CYCLE_LENGTH;
     const newTicketDate = sorted[sorted.length - 1].date;
-    purchaseRows.push(...ticketChunks(id, paidPortion, true, firstDate));
+    purchaseRows.push(...ticketChunks(id, paidPortion, true, attendanceDates));
     purchaseRows.push({ client_id: id, lessons_count: CYCLE_LENGTH, paid: false, purchased_at: newTicketDate });
   } else {
-    // Comfortably ahead, fully paid — the common, healthy case.
-    const purchasedCount = totalAttended + rand(2, 8);
-    purchaseRows.push(...ticketChunks(id, purchasedCount, true, firstDate));
+    // Comfortably ahead, fully paid — round up to the next full ticket so
+    // this also stays a clean multiple of CYCLE_LENGTH.
+    const minPurchased = totalAttended + rand(2, 8);
+    const purchasedCount = Math.ceil(minPurchased / CYCLE_LENGTH) * CYCLE_LENGTH;
+    purchaseRows.push(...ticketChunks(id, purchasedCount, true, attendanceDates));
   }
 }
 

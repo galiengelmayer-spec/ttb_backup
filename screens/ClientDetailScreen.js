@@ -392,18 +392,35 @@ export default function ClientDetailScreen() {
                 {ticketsNewestFirst.length === 0 ? (
                   <Text style={styles.noTicketsText}>אין כרטיסיות עדיין</Text>
                 ) : (
-                  ticketsNewestFirst.map(p => (
-                    <View key={p.id} style={styles.ticketRow}>
-                      <Ionicons name="checkmark-circle" size={14} color={GREEN} />
-                      <Text style={styles.ticketCount}>{p.lessons_count} שיעורים</Text>
-                      <Text style={styles.ticketDate}>{formatDateHebrew(p.purchased_at)}</Text>
-                    </View>
-                  ))
+                  ticketsNewestFirst.map(p => {
+                    const used = stats.ticketUsage[p.id] ?? 0;
+                    const isUsedUp = used >= p.lessons_count;
+                    return (
+                      <View key={p.id} style={styles.ticketRow}>
+                        <Ionicons
+                          name={isUsedUp ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={14}
+                          color={isUsedUp ? GREEN : PURPLE}
+                        />
+                        <Text style={styles.ticketCount}>{used}/{p.lessons_count}</Text>
+                        <Text style={styles.ticketDate}>{formatDateHebrew(p.purchased_at)}</Text>
+                      </View>
+                    );
+                  })
                 )}
 
-                <TouchableOpacity style={styles.sellTicketBtn} onPress={addNewTicket}>
-                  <Ionicons name="add-circle-outline" size={18} color={PURPLE} />
-                  <Text style={styles.sellTicketBtnText}>כרטיסיה חדשה</Text>
+                {/* Selling a new card before the current one is nearly done
+                    would double-count balance — keep it disabled until she's
+                    down to her last couple of lessons. */}
+                <TouchableOpacity
+                  style={[styles.sellTicketBtn, stats.remaining > 2 && styles.sellTicketBtnDisabled]}
+                  onPress={addNewTicket}
+                  disabled={stats.remaining > 2}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color={stats.remaining > 2 ? '#BBB' : PURPLE} />
+                  <Text style={[styles.sellTicketBtnText, stats.remaining > 2 && styles.sellTicketBtnTextDisabled]}>
+                    כרטיסיה חדשה
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -535,7 +552,9 @@ const styles = StyleSheet.create({
     marginTop: 12, paddingVertical: 12,
     borderRadius: 10, borderWidth: 1.5, borderColor: PURPLE, borderStyle: 'dashed',
   },
+  sellTicketBtnDisabled: { borderColor: '#DDD' },
   sellTicketBtnText: { color: PURPLE, fontSize: 14, fontWeight: '700' },
+  sellTicketBtnTextDisabled: { color: '#BBB' },
 
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 10,

@@ -8,8 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { todayString, addDays, formatDateHebrew } from '../lib/dates';
-import { fetchUnpaidCounts } from '../lib/dashboardData';
-import DebtBadge from '../components/DebtBadge';
+import { fetchPillStates, fetchClientPillState } from '../lib/dashboardData';
+import LessonCountBadge from '../components/LessonCountBadge';
 import DecorativeBlobs from '../components/DecorativeBlobs';
 import EmptyState from '../components/EmptyState';
 import HeaderMenu from '../components/HeaderMenu';
@@ -30,7 +30,7 @@ export default function AttendanceScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [allClients, setAllClients] = useState([]);
-  const [unpaidCounts, setUnpaidCounts] = useState({});
+  const [pillStates, setPillStates] = useState({});
   const searchTimer = useRef(null);
   const inputRef = useRef(null);
 
@@ -41,7 +41,7 @@ export default function AttendanceScreen() {
       .eq('active', true)
       .order('name');
     setAllClients(data ?? []);
-    setUnpaidCounts(await fetchUnpaidCounts());
+    setPillStates(await fetchPillStates());
   }, []);
 
   const fetchAttended = useCallback(async () => {
@@ -160,7 +160,12 @@ export default function AttendanceScreen() {
         { id: data.id, client_id: client.id, clients: { id: client.id, name: client.name } },
         ...prev,
       ]);
-      setUnpaidCounts(await fetchUnpaidCounts());
+      // Targeted re-fetch for just this one client, not the whole roster —
+      // re-running fetchPillStates() (every active client's full history)
+      // on every single toggle was the cause of the pill taking a long time
+      // to update, since it has to wait on ~30 clients' worth of queries.
+      const pill = await fetchClientPillState(client.id);
+      setPillStates(prev => ({ ...prev, [client.id]: pill }));
     }
   };
 
@@ -169,13 +174,18 @@ export default function AttendanceScreen() {
     if (!row) return;
     await supabase.from('attendances').delete().eq('id', row.id);
     setAttended(prev => prev.filter(a => a.id !== row.id));
-    setUnpaidCounts(await fetchUnpaidCounts());
+    const pill = await fetchClientPillState(clientId);
+    setPillStates(prev => ({ ...prev, [clientId]: pill }));
   };
 
   const removeAttendance = async (attendanceId) => {
+    const row = attended.find(a => a.id === attendanceId);
     await supabase.from('attendances').delete().eq('id', attendanceId);
     setAttended(prev => prev.filter(a => a.id !== attendanceId));
-    setUnpaidCounts(await fetchUnpaidCounts());
+    if (row) {
+      const pill = await fetchClientPillState(row.client_id);
+      setPillStates(prev => ({ ...prev, [row.client_id]: pill }));
+    }
   };
 
   const toggleClient = (client) => {
@@ -281,7 +291,7 @@ export default function AttendanceScreen() {
                     color={isIn ? GREEN : PURPLE}
                   />
                   <View style={styles.debtSlot}>
-                    <DebtBadge {...(unpaidCounts[item.id] ?? {})} />
+                    <LessonCountBadge {...(pillStates[item.id] ?? {})} />
                   </View>
                   <Text style={styles.clientRowName}>{item.name}</Text>
                 </TouchableOpacity>
@@ -319,7 +329,7 @@ export default function AttendanceScreen() {
               renderItem={({ item }) => (
                 <View style={styles.attendedItem}>
                   <View style={styles.debtSlot}>
-                    <DebtBadge {...(unpaidCounts[item.client_id] ?? {})} />
+                    <LessonCountBadge {...(pillStates[item.client_id] ?? {})} />
                   </View>
                   <TouchableOpacity
                     style={styles.attendedNameTouch}

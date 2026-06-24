@@ -7,9 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { computeCycleStats } from '../lib/cycles';
+import { computeCycleStats, pillStateFromStats, pillSortRank } from '../lib/cycles';
 import { fetchAllRows } from '../lib/fetchAll';
-import DebtBadge from '../components/DebtBadge';
+import LessonCountBadge from '../components/LessonCountBadge';
 import DecorativeBlobs from '../components/DecorativeBlobs';
 import EmptyState from '../components/EmptyState';
 
@@ -64,7 +64,7 @@ export default function ClientsScreen() {
 
     setClients(list.map(c => {
       const stats = computeCycleStats(attsByClient[c.id] ?? [], purchasesByClient[c.id] ?? []);
-      return { ...c, unpaidCount: stats.unpaidCount, overdraftCount: stats.overdraftCount };
+      return { ...c, pill: pillStateFromStats(stats) };
     }));
     setLoading(false);
   }, []);
@@ -77,10 +77,13 @@ export default function ClientsScreen() {
     searchTimer.current = setTimeout(() => fetchClients(text), 250);
   };
 
-  // Sorted in-memory — every client's unpaidCount is already loaded, no
+  // Sorted in-memory — every client's pill state is already loaded, no
   // need to round-trip to the server just to reorder what's on screen.
+  // Overdraft clients first (highest overdraft first), then everyone
+  // mid-ticket (highest usage first), then "needs a new ticket", then
+  // everyone with nothing to flag.
   const displayedClients = sortByDebt
-    ? [...clients].sort((a, b) => (b.unpaidCount ?? 0) - (a.unpaidCount ?? 0))
+    ? [...clients].sort((a, b) => pillSortRank(b.pill) - pillSortRank(a.pill))
     : clients;
 
   return (
@@ -145,9 +148,9 @@ export default function ClientsScreen() {
               <Ionicons name="chevron-back" size={18} color="#CCC" />
               {/* Fixed-width slot, clustered right next to the chevron, so
                   the pill's edge and the name's start stay put whether or
-                  not this client has any debt to show. */}
+                  not this client has anything to show. */}
               <View style={styles.debtSlot}>
-                <DebtBadge unpaidCount={item.unpaidCount} overdraftCount={item.overdraftCount} />
+                <LessonCountBadge {...item.pill} />
               </View>
               <View style={styles.clientInfo}>
                 <Text style={styles.clientName}>{item.name}</Text>
